@@ -5,6 +5,7 @@ import { io } from 'socket.io-client';
 import './style.css';
 import { dragPoints } from './geometry.js';
 import { TouchIntent, resizeView } from './touch.js';
+import { TextEditor } from './TextEditor.jsx';
 
 const W = 2400, H = 1600;
 const COLORS = ['#323a37', '#ee795c', '#e7b84b', '#649982', '#589bb8', '#8c79bd', '#d789a6', '#ffffff'];
@@ -15,6 +16,7 @@ if (!/^[a-f0-9]{64}$/.test(token || '')) {
 }
 const socket = io({ auth: { token }, autoConnect: false });
 const paths = {
+  text: <><path d="M4 5h16M12 5v15M8 20h8M4 5v3M20 5v3"/></>,
   pen: <><path d="m4 16-1 5 5-1L20 8l-4-4L4 16Z"/><path d="m13 7 4 4M4 16l4 4"/></>,
   eraser: <><path d="m3 14 10-11 8 8-10 10H8zM8 9l8 8M12 21h9"/></>,
   line: <><path d="m4 20 16-16"/><circle cx="4" cy="20" r="1"/><circle cx="20" cy="4" r="1"/></>,
@@ -33,6 +35,7 @@ function App() {
   const wrap = useRef(null), current = useRef(null), pointers = useRef(new Map()), gesture = useRef(null), lastSent = useRef(0), lastCursor = useRef(0);
   const pending = useRef(new Map()), startPoint = useRef(null), actions = useRef({});
   const touch = useRef(new TouchIntent()), lastSize = useRef(null);
+  const [brushPointer, setBrushPointer] = useState(null), [textDraft, setTextDraft] = useState(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
   const [size, setSize] = useState({ width: 1000, height: 650 });
@@ -88,13 +91,14 @@ function App() {
   const undo = () => { if (!socket.connected || pending.current.size || current.current) return; socket.timeout(5000).emit('stroke:undo', (err, result) => { if (err || result?.error) setNotice('撤销未确认，请检查连接'); }); };
   useEffect(() => {
     const down = e => {
+      if (actions.current.isEditing) return;
       if (e.target.closest('input,textarea,[contenteditable=true]')) return;
       if (e.code === 'Space' && e.target.closest('button')) return;
       if (e.code === 'Space') { e.preventDefault(); setSpace(true); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
       if (e.key === 'Escape') actions.current.cancel();
       if (e.key === 'Enter') actions.current.closePolygon();
-      const shortcut = { b: 'pen', h: 'hand', e: 'eraser', l: 'line', c: 'circle', p: 'polygon' }[e.key.toLowerCase()];
+      const shortcut = { b: 'pen', h: 'hand', e: 'eraser', l: 'line', c: 'circle', p: 'polygon', t: 'text' }[e.key.toLowerCase()];
       if (shortcut && !e.metaKey && !e.ctrlKey) actions.current.selectTool(shortcut);
     };
     const up = e => { if (e.code === 'Space') setSpace(false); };
@@ -107,6 +111,7 @@ function App() {
   const world = p => { const v = viewRef.current; return { x: (p.x - v.x) / v.scale, y: (p.y - v.y) / v.scale }; };
   const inside = p => p.x >= 0 && p.y >= 0 && p.x <= W && p.y <= H;
   const cancel = () => {
+    setTextDraft(null);
     const s = current.current; current.current = null; setPolygonCount(0);
     if (s) { remove(setLive, s.id); socket.emit('stroke:cancel', s.id); }
   };
@@ -115,15 +120,22 @@ function App() {
     if (current.current?.kind !== 'polygon' || current.current.points.length < 6) return;
     finish(); setPolygonCount(0);
   };
-  actions.current = { cancel, selectTool, closePolygon };
+  actions.current = { cancel, selectTool, closePolygon, isEditing: Boolean(textDraft) };
   const finish = () => {
     const s = current.current; current.current = null;
     if (!s) return;
     setStrokes(old => ({ ...old, [s.id]: s })); remove(setLive, s.id); persist(s);
   };
+  const saveText = () => {
+    if (!textDraft?.text.trim() || !me) return;
+    const s = { id: crypto.randomUUID(), kind: 'text', owner: me.id, points: [textDraft.x, textDraft.y], width: 1, color: textDraft.color, fontSize: textDraft.fontSize, text: textDraft.text };
+    setStrokes(old => ({ ...old, [s.id]: s })); persist(s); setTextDraft(null);
+  };
   const beginStroke = p => {
+    if (textDraft) return;
     const point = world(p);
     if (!inside(point) || !connected) return;
+    if (tool === 'text') { setBrushPointer(null); setOptionsOpen(false); setTextDraft({ x: point.x, y: point.y, text: '', color, fontSize: 40 }); return; }
     if (tool === 'polygon' && current.current) {
       const s = current.current;
       if (s.points.length >= 6 && (Math.hypot(point.x - s.points[0], point.y - s.points[1]) * view.scale < 12 || Math.hypot(point.x - s.points.at(-2), point.y - s.points.at(-1)) * view.scale < 8)) { closePolygon(); return; }
@@ -151,6 +163,7 @@ function App() {
   };
   const move = e => {
     const p = local(e);
+    setBrushPointer(e.pointerType === 'mouse' ? p : null);
     if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, p);
     if (pointers.current.size >= 2) {
       const [a, b] = [...pointers.current.values()];
@@ -167,7 +180,7 @@ function App() {
       const prev = gesture.current.pan; setView(v => ({ ...v, x: v.x + p.x - prev.x, y: v.y + p.y - prev.y })); gesture.current = { pan: p }; return;
     }
     if (e.pointerType === 'touch') {
-      if (tool === 'polygon') return; // Vertices are taps, never drags or pinch starts.
+      if (tool === 'polygon' || tool === 'text') return; // Vertices are taps, never drags or pinch starts.
       const start = touch.current.drag(p);
       if (start) beginStroke(start);
     }
@@ -205,14 +218,16 @@ function App() {
     el.addEventListener('wheel', wheel, { passive: false }); return () => el.removeEventListener('wheel', wheel);
   }, []);
   const ownCount = Object.values(strokes).filter(s => s.owner === me?.id).length;
-  const drawStroke = s => <Line key={s.id} points={s.points} stroke={s.color} strokeWidth={s.width} lineCap="round" lineJoin="round" tension={!s.kind || s.kind === 'pen' ? .25 : 0} closed={s.kind === 'polygon' && s.points.length >= 6} globalCompositeOperation={s.kind === 'eraser' ? 'destination-out' : 'source-over'} listening={false}/>;
+  const drawStroke = s => s.kind === 'text' ? <Text key={s.id} x={s.points[0]} y={s.points[1]} width={W - s.points[0]} text={s.text} fontSize={s.fontSize} fontFamily="Noto Sans SC, sans-serif" lineHeight={1.3} fill={s.color} listening={false}/> : <Line key={s.id} points={s.points} stroke={s.color} strokeWidth={s.width} lineCap="round" lineJoin="round" tension={!s.kind || s.kind === 'pen' ? .25 : 0} closed={s.kind === 'polygon' && s.points.length >= 6} globalCompositeOperation={s.kind === 'eraser' ? 'destination-out' : 'source-over'} listening={false}/>;
+  const showBrush = brushPointer && !isPan && !textDraft && ['pen', 'eraser'].includes(tool) && inside(world(brushPointer));
+  const brushSize = (tool === 'eraser' ? Math.min(32, width * 2) : width) * view.scale;
   return <div className="app">
     <header>
       <div className="brand"><span className="brand-icon"><Icon name="pen" size={16}/></span><h1>一起涂<span className="brand-dot">.</span></h1></div>
       <div className="header-right"><div className="online"><span className={connected ? 'status-dot' : 'status-dot offline'}/><b>{connected ? people.length : '—'}</b> 人在线</div></div>
     </header>
     <main>
-      <div className={`canvas-wrap ${isPan ? 'pan' : ''}`} ref={wrap} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancelPointer} onDoubleClick={closePolygon}>
+      <div className={`canvas-wrap ${isPan ? 'pan' : ''} ${showBrush ? 'brush-active' : ''} ${tool === 'text' ? 'text-tool' : ''}`} ref={wrap} onPointerDown={down} onPointerMove={move} onPointerLeave={() => setBrushPointer(null)} onPointerUp={up} onPointerCancel={cancelPointer} onDoubleClick={closePolygon}>
         <Stage width={size.width} height={size.height} x={view.x} y={view.y} scaleX={view.scale} scaleY={view.scale}>
           <Layer listening={false}><Rect width={W} height={H} fill="#fffefb" shadowColor="#26372a" shadowBlur={50} shadowOpacity={.08} shadowOffsetY={10}/><Group clipX={0} clipY={0} clipWidth={W} clipHeight={H}>
             {Array.from({ length: 59 }, (_, i) => <Line key={`v${i}`} points={[(i + 1) * 40, 0, (i + 1) * 40, H]} stroke="#f3f1eb" strokeWidth={1}/>)}
@@ -221,12 +236,13 @@ function App() {
           <Layer listening={false}><Group clipX={0} clipY={0} clipWidth={W} clipHeight={H}>
             {Object.values(strokes).filter(s => !live[s.id]).sort((a, b) => (a.seq ?? Infinity) - (b.seq ?? Infinity)).map(drawStroke)}{Object.values(live).map(drawStroke)}
           </Group></Layer>
-          <Layer listening={false}>{Object.values(cursors).map(p => <Group key={p.id} x={p.x} y={p.y} scaleX={1 / view.scale} scaleY={1 / view.scale}><Line points={[0, 0, 4, 17, 8, 10, 16, 9, 0, 0]} fill={p.color} closed stroke="#fff" strokeWidth={1.5}/><Rect x={12} y={17} width={92} height={25} fill={p.color} cornerRadius={6}/><Text x={19} y={24} text={p.name} fontSize={11} fill="white"/></Group>)}</Layer>
+          <Layer listening={false}>{textDraft && <Text x={textDraft.x} y={textDraft.y} width={W - textDraft.x} text={textDraft.text || '在这里写字'} fontSize={textDraft.fontSize} fontFamily="Noto Sans SC, sans-serif" lineHeight={1.3} fill={textDraft.color} opacity={.6}/>} {Object.values(cursors).map(p => <Group key={p.id} x={p.x} y={p.y} scaleX={1 / view.scale} scaleY={1 / view.scale}><Line points={[0, 0, 4, 17, 8, 10, 16, 9, 0, 0]} fill={p.color} closed stroke="#fff" strokeWidth={1.5}/><Rect x={12} y={17} width={92} height={25} fill={p.color} cornerRadius={6}/><Text x={19} y={24} text={p.name} fontSize={11} fill="white"/></Group>)}</Layer>
         </Stage>
+        {showBrush && <div className="brush-preview" aria-hidden="true" style={{ left: brushPointer.x, top: brushPointer.y, width: brushSize, height: brushSize, '--brush-color': tool === 'eraser' ? '#647467' : color }}/>}
       </div>
       {!Object.keys(strokes).length && !Object.keys(live).length && <div className="empty"><span className="empty-spark">✳</span><h2>第一笔，交给你。</h2><p>选个喜欢的颜色，随便画点什么。<br/>你的灵感，会成为这面墙的一部分。</p><span className="empty-arrow">↙</span></div>}
       <aside className={`toolbar ${optionsOpen ? 'options-open' : ''}`} aria-label="绘画工具">
-        <div className="tool-group">{[['pen', '画笔 (B)'], ['eraser', '橡皮擦 (E)'], ['line', '直线 (L)'], ['circle', '圆：从圆心拖动 (C)'], ['polygon', '多边形：逐点点击，双击闭合 (P)'], ['hand', '移动画布 (H)']].map(([name, label]) => <button key={name} aria-label={label} title={label} aria-pressed={tool === name} className={tool === name ? 'selected' : ''} onClick={() => selectTool(name)}><Icon name={name}/></button>)}<button className="mobile-undo" aria-label="撤销自己的上一笔" disabled={!ownCount || !connected || saving > 0} onClick={undo}><Icon name="undo"/></button></div>
+        <div className="tool-group">{[['pen', '画笔 (B)'], ['eraser', '橡皮擦 (E)'], ['line', '直线 (L)'], ['circle', '圆：从圆心拖动 (C)'], ['polygon', '多边形：逐点点击，双击闭合 (P)'], ['text', '文字 (T)'], ['hand', '移动画布 (H)']].map(([name, label]) => <button key={name} aria-label={label} title={label} aria-pressed={tool === name} className={tool === name ? 'selected' : ''} onClick={() => selectTool(name)}><Icon name={name}/></button>)}<button className="mobile-undo" aria-label="撤销自己的上一笔" disabled={!ownCount || !connected || saving > 0} onClick={undo}><Icon name="undo"/></button></div>
         <button className="mobile-options-toggle" aria-expanded={optionsOpen} aria-controls="paint-options" onClick={() => setOptionsOpen(v => !v)}><span style={{ background: color }}/>{optionsOpen ? '收起颜色与笔宽' : '颜色与笔宽'}<span aria-hidden="true">{optionsOpen ? '⌄' : '⌃'}</span></button>
         <div className="paint-options" id="paint-options">
         <div className="divider"/><div className="colors">{COLORS.map(c => <button key={c} aria-label={`颜色 ${c}`} aria-pressed={color === c} title={c === '#ffffff' ? '白色画笔' : c} className={`swatch ${color === c ? 'chosen' : ''}`} style={{ '--swatch': c }} onClick={() => { setColor(c); if (tool === 'eraser') selectTool('pen'); }}/>)}</div>
@@ -236,6 +252,7 @@ function App() {
       </aside>
       {tool === 'polygon' && <div className="polygon-controls"><span>{polygonCount ? '点击添加顶点，再点「完成」' : '点击画布，开始绘制多边形'}</span>{polygonCount > 0 && <><button disabled={polygonCount < 3} onClick={closePolygon}>完成</button><button onClick={cancel}>取消</button></>}</div>}
       <div className="zoom"><button aria-label="缩小" onClick={() => zoom(.8)}><Icon name="minus" size={16}/></button><span>{Math.round(view.scale * 100)}%</span><button aria-label="放大" onClick={() => zoom(1.25)}><Icon name="plus" size={16}/></button><i/><button aria-label="适应窗口" title="适应窗口" onClick={() => fit()}><Icon name="fit" size={17}/></button></div>
+      {textDraft && <TextEditor draft={textDraft} onChange={setTextDraft} onSave={saveText} onCancel={() => setTextDraft(null)}/>}
       {notice && <div className="toast" role="status">{notice}</div>}
       {!connected && <div className="connection-banner" role="status">正在连接涂鸦墙… 连接后就能开始画</div>}
     </main>

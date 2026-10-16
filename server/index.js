@@ -36,8 +36,8 @@ export function createWall({ database = 'data/wall.sqlite', basePath = '' } = {}
     io.emit('people', people());
     let budget = 160, reset = Date.now();
     const allow = () => { if (Date.now() - reset > 1000) { budget = 160; reset = Date.now(); } return budget-- > 0; };
-    const validKind = s => s && (s.kind === undefined || ['pen', 'eraser', 'line', 'circle', 'polygon'].includes(s.kind));
-    const clean = s => ({ id: s.id, kind: s.kind || 'pen', color: s.color, width: s.width, points: s.points, owner });
+    const validKind = s => s && (s.kind === undefined || ['pen', 'eraser', 'line', 'circle', 'polygon', 'text'].includes(s.kind)) && (s.kind !== 'text' || (s.points.length === 2 && typeof s.text === 'string' && s.text.length <= 500 && s.text.trim().length > 0 && Number.isFinite(s.fontSize) && s.fontSize >= 16 && s.fontSize <= 128));
+    const clean = s => ({ id: s.id, kind: s.kind || 'pen', color: s.color, width: s.width, points: s.points, owner, ...(s.kind === 'text' ? { text: s.text, fontSize: s.fontSize } : {}) });
     socket.on('stroke:preview', s => {
       if (!allow() || !valid(s) || !validKind(s)) return;
       if (db.prepare('SELECT id FROM strokes WHERE id = ? UNION SELECT id FROM removed WHERE id = ?').get(s.id, s.id)) return;

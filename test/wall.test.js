@@ -139,3 +139,31 @@ test('gateway prefix serves HTTP and Socket.IO without changing the browser path
   const snapshot = event(socket, 'snapshot'); socket.connect(); assert.deepEqual((await snapshot).strokes, []);
   assert.deepEqual(await send(socket, 'stroke:commit', stroke('prefixed')), { ok: true });
 });
+
+test('text sync preserves Chinese, multiline content and font size across restart and undo', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'wall-text-')), database = join(dir, 'test.sqlite');
+  let { wall, url } = await start(database); const clients = [];
+  t.after(async () => { clients.forEach(s => s.disconnect()); await wall.close(); rmSync(dir, { recursive: true, force: true }); });
+  const a = await client(url, 'a'), b = await client(url, 'b'); clients.push(a.socket, b.socket);
+  const data = stroke('text-note', { kind: 'text', points: [120, 240], fontSize: 40, text: '你好，画友！\nHello <script>plain text</script>' });
+  const received = event(b.socket, 'stroke:commit');
+  assert.deepEqual(await send(a.socket, 'stroke:commit', data), { ok: true });
+  const saved = await received; assert.equal(saved.text, data.text); assert.equal(saved.fontSize, 40);
+  a.socket.disconnect(); b.socket.disconnect(); await wall.close();
+  ({ wall, url } = await start(database));
+  const c = await client(url, 'a'); clients.push(c.socket);
+  assert.equal(c.snapshot.strokes[0].text, data.text);
+  assert.equal(c.snapshot.strokes[0].kind, 'text');
+  await send(c.socket, 'stroke:undo'); assert.equal(wall.db.prepare('SELECT count(*) AS n FROM strokes').get().n, 0);
+});
+
+test('rejects empty, oversized and malformed text operations', async t => {
+  const { wall, url } = await start(); const clients = [];
+  t.after(async () => { clients.forEach(s => s.disconnect()); await wall.close(); });
+  const a = await client(url, 'a'); clients.push(a.socket);
+  const base = stroke('bad-text', { kind: 'text', points: [10, 10], fontSize: 40, text: 'Hello' });
+  for (const extra of [{ text: '   \n' }, { text: 'x'.repeat(501) }, { text: 123 }, { fontSize: -1 }, { fontSize: 1000 }, { points: [10, 20, 30, 40] }]) {
+    assert.ok((await send(a.socket, 'stroke:commit', { ...base, ...extra })).error);
+  }
+  assert.equal(wall.db.prepare('SELECT count(*) AS n FROM strokes').get().n, 0);
+});

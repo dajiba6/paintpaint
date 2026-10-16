@@ -46,3 +46,13 @@ button,input,label{touch-action:manipulation}
   .desktop-hint,.footer-love{display:none}.mobile-hint{display:block;font-size:10px}
 }
 @media(max-width:350px){.toolbar{width:calc(100% - 4px);padding:2px}.toolbar .colors{gap:4px}.mobile-hint{font-size:8px}}
+.canvas-wrap.brush-active{cursor:none}
+.canvas-wrap.text-tool{cursor:text}
+.brush-preview{position:absolute;transform:translate(-50%,-50%);border-radius:50%;pointer-events:none;background:color-mix(in srgb,var(--brush-color) 24%,transparent);outline:1px solid color-mix(in srgb,var(--brush-color) 70%,#505850);box-shadow:0 0 0 2px #fff9,0 2px 5px #0002;z-index:1}
+.text-editor-backdrop{position:absolute;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:#f4f3ee55;padding:12px}
+.text-editor{width:390px;max-width:100%;max-height:100%;overflow:auto;background:#fffefb;border:1px solid #d6dfd1;box-shadow:0 12px 60px #243d3429;border-radius:16px;padding:18px;color:#35483e}
+.text-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}.text-editor-heading strong{font-size:15px}.text-editor-heading span{font-size:11px;color:#83917d}
+.text-editor textarea{display:block;width:100%;resize:vertical;min-height:90px;max-height:30dvh;border:1px solid #d4dfcf;border-radius:9px;background:#fafbf6;padding:10px;font:16px/1.5 'Noto Sans SC',sans-serif;color:#35483e;outline-color:#648974}
+.text-editor-controls{display:flex;align-items:center;gap:14px;margin-top:12px;font-size:12px}.text-editor-controls label{display:flex;align-items:center;gap:6px}.text-editor select{font:inherit;padding:6px;border:1px solid #d4dfcf;border-radius:6px;background:#fafbf6;min-height:36px}.text-editor input[type=color]{width:40px;height:36px;border:1px solid #d4dfcf;border-radius:6px;padding:3px;background:#fafbf6}.text-count{margin-left:auto;color:#879582;font-size:11px}
+.text-editor-actions{display:flex;align-items:center;gap:8px;margin-top:14px}.text-editor-actions>span{font-size:10px;color:#879582;margin-right:auto}.text-editor-actions button{min-height:40px;padding:8px 12px;border-radius:8px;background:#edf1e8;font-size:12px}.text-editor-actions .text-save{background:#446650;color:white}
+@media(max-width:700px),(pointer:coarse){.toolbar .tool-group{overflow-x:auto;justify-content:flex-start;scrollbar-width:thin;touch-action:pan-x}.toolbar .tool-group button{flex:0 0 44px}.text-editor-actions button{min-height:44px}.text-editor select,.text-editor input[type=color]{min-height:44px}.text-editor-actions>span{display:none}.text-editor-actions{justify-content:flex-end}.text-editor-backdrop{align-items:flex-start;padding-top:12px}}
