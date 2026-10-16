@@ -1,0 +1,16 @@
+services:
+  paintpaint:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${PAINT_BIND_IP:-127.0.0.1}:${PAINT_PORT:-3088}:3001"
+    volumes:
+      - wall-data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  wall-data:
