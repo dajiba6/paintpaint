@@ -4,7 +4,7 @@ import { Stage, Layer, Rect, Line, Text, Group } from 'react-konva';
 import { io } from 'socket.io-client';
 import './style.css';
 import { dragPoints } from './geometry.js';
-import { TouchIntent, resizeView } from './touch.js';
+import { TouchIntent, resizeView, constrainView, pinchView } from './touch.js';
 import { TextEditor } from './TextEditor.jsx';
 
 const W = 2400, H = 1600;
@@ -39,8 +39,13 @@ function App() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [polygonCount, setPolygonCount] = useState(0);
   const [size, setSize] = useState({ width: 1000, height: 650 });
-  const [view, setView] = useState({ x: 50, y: 50, scale: .35 });
-  const viewRef = useRef(view); viewRef.current = view;
+  const [view, renderView] = useState({ x: 50, y: 50, scale: .35 });
+  const viewRef = useRef(view);
+  const setView = update => {
+    const next = typeof update === 'function' ? update(viewRef.current) : update;
+    viewRef.current = constrainView(next, lastSize.current || size);
+    renderView(viewRef.current);
+  };
   const [strokes, setStrokes] = useState({}), [live, setLive] = useState({}), [cursors, setCursors] = useState({});
   const [people, setPeople] = useState([]), [me, setMe] = useState(null), [connected, setConnected] = useState(false);
   const [color, setColor] = useState(COLORS[0]), [width, setWidth] = useState(3), [tool, setTool] = useState('pen');
@@ -59,10 +64,12 @@ function App() {
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
       const s = { width: entry.contentRect.width, height: entry.contentRect.height };
-      setSize(s);
-      if (!lastSize.current) fit(s);
-      else { const before = lastSize.current; setView(v => resizeView(v, before, s)); }
+      if (s.width <= 0 || s.height <= 0) return;
+      const before = lastSize.current;
       lastSize.current = s;
+      setSize(s);
+      if (!before) fit(s);
+      else setView(v => resizeView(v, before, s));
     });
     observer.observe(wrap.current);
     const onSnapshot = data => {
@@ -169,9 +176,8 @@ function App() {
       const [a, b] = [...pointers.current.values()];
       const center = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, distance = Math.hypot(a.x - b.x, a.y - b.y);
       if (gesture.current?.distance) {
-        const v = viewRef.current, prev = gesture.current;
-        const scale = Math.max(.1, Math.min(3, v.scale * distance / prev.distance));
-        setView({ scale, x: center.x - (prev.center.x - v.x) / v.scale * scale, y: center.y - (prev.center.y - v.y) / v.scale * scale });
+        const prev = gesture.current;
+        setView(v => pinchView(v, prev, { center, distance }));
       }
       gesture.current = { center, distance }; return;
     }

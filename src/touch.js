@@ -18,5 +18,18 @@ export class TouchIntent {
 }
 
 export function resizeView(view, before, after) {
-  return { ...view, x: view.x + (after.width - before.width) / 2, y: view.y + (after.height - before.height) / 2 };
+  return constrainView({ ...view, x: view.x + (after.width - before.width) / 2, y: view.y + (after.height - before.height) / 2 }, after);
+}
+
+// Keep small boards centered and prevent larger boards from leaving the viewport.
+export function constrainView(view, size) {
+  const position = (offset, viewport, board) => board <= viewport
+    ? (viewport - board) / 2
+    : Math.max(viewport - board, Math.min(0, offset));
+  return { ...view, x: position(view.x, size.width, 2400 * view.scale), y: position(view.y, size.height, 1600 * view.scale) };
+}
+
+export function pinchView(view, previous, current) {
+  const scale = Math.max(.1, Math.min(3, view.scale * current.distance / previous.distance));
+  return { scale, x: current.center.x - (previous.center.x - view.x) / view.scale * scale, y: current.center.y - (previous.center.y - view.y) / view.scale * scale };
 }
