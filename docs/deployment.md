@@ -1,5 +1,61 @@
 # 部署 paintpaint
 
+## 当前在线部署
+
+`https://paintpaint.happycyn.cn` → Cloudflare Worker → 现有 Cloudflare Tunnel → Ubuntu 上的 Node.js 服务。
+
+Worker 仅转发请求，画板、实时协作与数据库都运行在 Ubuntu。Worker 自定义域名由 Wrangler 管理 DNS 和证书。Tunnel 入口使用独立路径 `/__paintpaint`，保留宿主域名上的其他站点路由。此方案无需 DNS API 写入凭证。
+
+### Ubuntu 常驻服务
+
+- 目录：`~/Projects/paintpaint`
+- Node：`~/.local/opt/node-v24.22.0-linux-x64/bin/node`
+- 运行数据：`~/Projects/paintpaint/data/wall.sqlite`
+- 用户服务：`~/.config/systemd/user/paintpaint.service`
+- 监听地址：`172.17.0.1:3088`（Docker bridge 网关，供 cloudflared 容器访问）
+- 环境变量：`HOST=172.17.0.1`、`PORT=3088`、`BASE_PATH=/__paintpaint`
+
+服务模板见 [paintpaint.service](../deploy/paintpaint.service)。迁移到其他机器时请调整 Node 路径、工作目录和监听地址。用户服务需要启用 linger，确保退出 SSH 后及开机后继续运行。
+
+```bash
+systemctl --user status paintpaint
+journalctl --user -u paintpaint -n 100 --no-pager
+curl --fail http://172.17.0.1:3088/api/health
+```
+
+更新应用：
+
+```bash
+cd ~/Projects/paintpaint
+export PATH="$HOME/.local/opt/node-v24.22.0-linux-x64/bin:$PATH"
+git pull --ff-only
+npm ci
+npm test
+npm run build
+systemctl --user restart paintpaint
+```
+
+备份原生部署的数据，可先停止服务，复制整个 `data/` 到私有备份目录，再启动服务；或用 SQLite 在线备份。不要将生产数据提交到 GitHub。
+
+### 发布域名入口
+
+`wrangler.jsonc` 中包含自定义域名和固定的 Tunnel 源站地址，`edge/index.js` 透明转发 HTTP 与 WebSocket Upgrade。
+
+```bash
+npx wrangler login
+npx wrangler deploy
+```
+
+现有 Tunnel 中需要位于默认路由之前的独立规则：
+
+```yaml
+hostname: home.happycyn.cn
+path: ^/__paintpaint(/.*)?$
+service: http://172.17.0.1:3088
+```
+
+源码不包含 Tunnel 凭证。源站子路径同样是公开访问入口，不承载私有接口。Worker 受当前 Cloudflare 账户的 Workers 配额约束。
+
 ## Docker
 
 需要 Docker Engine 与 Docker Compose。生产镜像使用 Node.js 24，应用以非 root 用户运行。

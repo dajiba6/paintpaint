@@ -1,0 +1,9 @@
+{
+  "name": "paintpaint-gateway",
+  "main": "edge/index.js",
+  "compatibility_date": "2026-10-16",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "paintpaint.happycyn.cn", "custom_domain": true }],
+  "vars": { "ORIGIN_URL": "https://home.happycyn.cn/__paintpaint" }
+}

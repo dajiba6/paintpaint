@@ -82,6 +82,8 @@ src/                 画板界面、绘制交互与样式
 server/              实时服务、数据校验与 SQLite 存储
 test/                多人同步、恢复、撤销与图形测试
 docs/                项目横幅与部署说明
+edge/                HTTPS / WebSocket 转发入口
+deploy/              Ubuntu systemd 服务模板
 Dockerfile           Node 24 多阶段生产镜像
 compose.yaml         服务与持久化数据卷
 ```
@@ -93,6 +95,8 @@ docker compose up -d --build
 ```
 
 默认只监听宿主机 **127.0.0.1:3088**。SQLite 存在独立 Docker 数据卷中，容器更新不会清空画板。将 HTTPS 反向代理或 Cloudflare Tunnel 指向此端口即可；如果 Tunnel 本身在容器中，需要使用该容器可达的宿主机地址。
+
+当前在线实例使用 **Ubuntu + Node 24 + systemd** 常驻运行，Cloudflare Worker 仅作为 HTTPS / WebSocket 入口，通过 Tunnel 连接服务器。作品保存在 Ubuntu 的 SQLite 文件中。Docker 是可选的自托管方式。
 
 详细步骤、升级、备份和 Cloudflare Tunnel 配置见 **[部署说明](docs/deployment.md)**。
 

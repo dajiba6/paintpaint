@@ -1,0 +1,19 @@
+[Unit]
+Description=paintpaint collaborative drawing wall
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/paintpaint
+ExecStart=%h/.local/opt/node-v24.22.0-linux-x64/bin/node server/index.js
+Environment=NODE_ENV=production
+Environment=HOST=172.17.0.1
+Environment=PORT=3088
+Environment=BASE_PATH=/__paintpaint
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

@@ -128,3 +128,14 @@ test('only the originating connection can cancel its unfinished shape', async t 
   const removed = event(b.socket, 'stroke:remove'); a.socket.emit('stroke:cancel', 'draft'); assert.equal(await removed, 'draft');
   const d = await client(url, 'd'); clients.push(d.socket); assert.deepEqual(d.snapshot.active, []);
 });
+
+test('gateway prefix serves HTTP and Socket.IO without changing the browser path', async t => {
+  const wall = createWall({ database: ':memory:', basePath: '/__paintpaint' });
+  await new Promise(resolve => wall.http.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${wall.http.address().port}`;
+  const socket = io(url, { auth: { token: 'a'.repeat(64) }, path: '/__paintpaint/socket.io', transports: ['websocket'], autoConnect: false });
+  t.after(async () => { socket.disconnect(); await wall.close(); });
+  assert.deepEqual(await (await fetch(`${url}/__paintpaint/api/health`)).json(), { ok: true });
+  const snapshot = event(socket, 'snapshot'); socket.connect(); assert.deepEqual((await snapshot).strokes, []);
+  assert.deepEqual(await send(socket, 'stroke:commit', stroke('prefixed')), { ok: true });
+});

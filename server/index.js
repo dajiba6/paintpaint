@@ -8,12 +8,16 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const WIDTH = 2400, HEIGHT = 1600;
-export function createWall({ database = 'data/wall.sqlite' } = {}) {
+export function createWall({ database = 'data/wall.sqlite', basePath = '' } = {}) {
   if (database !== ':memory:') mkdirSync(dirname(database), { recursive: true });
   const db = new DatabaseSync(database);
   db.exec('PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS strokes (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, owner TEXT NOT NULL, body TEXT NOT NULL); CREATE TABLE IF NOT EXISTS removed (id TEXT PRIMARY KEY, owner TEXT NOT NULL)');
   const app = express(), http = createServer(app);
-  const io = new Server(http, { maxHttpBufferSize: 256_000 });
+  const io = new Server(http, { maxHttpBufferSize: 256_000, path: `${basePath}/socket.io` });
+  if (basePath) app.use((req, _res, next) => {
+    if (req.url === basePath || req.url.startsWith(`${basePath}/`)) req.url = req.url.slice(basePath.length) || '/';
+    next();
+  });
   const active = new Map();
   const all = () => db.prepare('SELECT seq, body FROM strokes ORDER BY seq').all().map(row => ({ ...JSON.parse(row.body), seq: row.seq }));
   const people = () => [...new Map([...io.sockets.sockets.values()].map(s => [s.data.owner, s.data.person])).values()];
@@ -95,7 +99,7 @@ export function createWall({ database = 'data/wall.sqlite' } = {}) {
   return { http, io, db, close: () => new Promise(resolveClose => io.close(() => { db.close(); resolveClose(); })) };
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const wall = createWall();
-  wall.http.listen(Number(process.env.PORT || 3001), '0.0.0.0', () => console.log(`Wall server: http://localhost:${process.env.PORT || 3001}`));
+  const wall = createWall({ basePath: process.env.BASE_PATH || '' });
+  wall.http.listen(Number(process.env.PORT || 3001), process.env.HOST || '0.0.0.0', () => console.log(`Wall server listening on port ${process.env.PORT || 3001}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => { await wall.close(); process.exit(0); });
 }
